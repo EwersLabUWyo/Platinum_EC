@@ -3,6 +3,8 @@
 import numpy as np
 from scipy import optimize
 
+from ecprocessor.tiltcorrections._helper import fourier_func, dfourier_func_dtheta
+
 def get_double_rotation_angles(U, V, W):
     '''
     compute the double rotation wind direction and tilt angle (Wilczak et al, 2001).
@@ -22,55 +24,87 @@ def get_double_rotation_angles(U, V, W):
     theta = (np.arctan2(V, U)%(2*np.pi))
     phi = np.arctan2(W, U*np.cos(theta) + V*np.sin(theta))
     return theta, phi
-    
-def fourier_func(theta, *p):
-    '''compute the value of a fourier series
-    
-    Parameters
-    ----------
-    theta : np.ndarray
-        independent variable
-    p : 1d iterable
-        fourier coefficients [a_0, b_0, ..., a_N-1, b_N-1], where a are the cosine coefficients and b are the sine coefficients
-    
-    Returns
-    -------
-    out -  np.ndarray
-        the value of the fourier series at theta.
-    '''
-    # a = p[::2]
-    # b = p[1::2]
-    p = np.array(p)
-    c = p[::2] + 1j*p[1::2]
-    N = len(c)
-    terms = np.array([c[n]*np.exp(1j*n*theta) for n in range(N)])
-    out = terms.real.sum(0) + terms.imag.sum(0)
-    return out
 
-def dfourier_func_dtheta(theta, *p):
-    '''compute the value of the derivative of a fourier series
+def get_triple_rotation_angles(U, V, W):
+    '''
+    compute the triple rotation wind direction and tilt angle (Wilczak et al, 2001).
     
     Parameters
     ----------
-    theta : np.ndarray
-        independent variable
-    p : iterable
-        fourier coefficients [a_0, b_0, ..., a_N-1, b_N-1], where a are the cosine coefficients and b are the sine coefficients
+    U, V, W: np.ndarray
+        u, v, w components of windspeed.
     
     Returns
     -------
-    out -  np.ndarray
-        the value of the derivative of the fourier series at theta.
+    theta, phi, psi : np.ndarray
+        wind direction, tilt angle, and second tilt angle to use for each time block.
+    ''' 
+    U, V, W = np.atleast_1d(U), np.atleast_1d(V), np.atleast_1d(W)
+
+    theta, phi = get_double_rotation_angles(U, V, W)
+    uvw_rot = double_rotation_fit_from_angles(U, V, W, theta, phi)
+    u_rot, v_rot, w_rot = uvw_rot[:, 0], uvw_rot[:, 1], uvw_rot[:, 2]
+    y = 2*(v_rot*w_rot).mean(0)
+    x = (v_rot**2).mean() - w_rot**2
+    psi = (np.arctan2(y, x))/2
+
+    return theta, phi, psi
+
+def triple_rotation_fit_from_angles(U, V, W, theta, phi, psi):
     '''
+    Given an direction and tilt angle, transform wind coordinates U, V, W using the triple-rotation method. (Wilczak et al, 2001).
     
-    # a = p[::2]
-    # b = p[1::2]
-    p = np.array(p)
-    c = p[::2] + 1j*p[1::2]
-    N = len(c)
-    terms = np.array([1j*n*c[n]*np.exp(1j*n*theta) for n in range(N)])
-    out = terms.real.sum(0) + terms.imag.sum(0)
-    return out
+    Scalar inputs are converted to 1-dimensional arrays.
+
+    Parameters
+    ----------
+    U, V, W : np.ndarray 
+        Wind coordinates
+    theta, phi, psi : np.ndarray
+        Rotation angles
+    
+    Returns
+    -------
+    uvw_rot: np.ndarray
+        shape (..., 3): U, V, W are indexed by the last dimension.
+    '''
+
+    U, V, W = np.atleast_1d(U), np.atleast_1d(V), np.atleast_1d(W)
+    
+    uvw_rot = double_rotation_fit_from_angles(U, V, W, theta, phi)
+    u_rot, v_rot, w_rot = u_rot, v_rot, w_rot = uvw_rot[:, 0], uvw_rot[:, 1], uvw_rot[:, 2]
+    
+    u_rot_2 = u_rot
+    v_rot_2 = v_rot*np.cos(psi) + w_rot*np.sin(psi)
+    w_rot_2 = -v_rot*np.sin(psi) + w_rot*np.sin(psi)
+
+    uvw_rot_2 = np.stack((u_rot_2, v_rot_2, w_rot_2), axis=-1)
+
+    return uvw_rot_2
+
+def triple_rotation_fit_from_uvw(U, V, W):
+    '''
+    Transform wind coordinates U, V, W using the triple-rotation method. (Wilczak et al, 2001).
+    
+    Scalar inputs are converted to 1-dimensional arrays.
+
+    Parameters
+    ----------
+    U, V, W : np.ndarray 
+        Wind coordinates
+    
+    Returns
+    -------
+    uvw_rot: np.ndarray
+        shape (..., 3): U, V, W are indexed by the last dimension.
+    '''
+
+    U, V, W = np.atleast_1d(U), np.atleast_1d(V), np.atleast_1d(W)
+    
+    theta, phi, psi = get_triple_rotation_angles(U, V, W, theta, phi)
+    uvw_rot_2 = triple_rotation_fit_from_angles(U, V, W, theta, phi, psi)
+
+    return uvw_rot_2
 
 def get_continuous_planar_fit_angles(theta, phi, N):
     '''fit a fourier series approximation to a random variable phi ~ theta using N terms
@@ -90,6 +124,8 @@ def get_continuous_planar_fit_angles(theta, phi, N):
     
     Returns
     -------
+    theta : np.ndarray
+        original theta that was provided as input
     phi_approx : function
         a function to compute the fourier approximation of phi(theta). Takes one argument, theta, an np.ndarray
     dphi_approx_dtheta: function
@@ -116,7 +152,7 @@ def get_continuous_planar_fit_angles(theta, phi, N):
     phi_func = lambda theta: fourier_func(theta, *p)
     phidot_func = lambda theta: dfourier_func_dtheta(theta, *p)
     
-    return phi_func, phidot_func
+    return theta, phi_func, phidot_func
     
 def double_rotation_fit_from_angles(U, V, W, theta, phi):
     '''
@@ -379,7 +415,7 @@ def continuous_planar_fit_from_uvw(U, V, W, N):
     '''
     
     theta, phi = get_double_rotation_angles(U, V, W)
-    phi_approx, phidot_approx = get_continuous_planar_fit_angles(theta, phi, N)
+    theta, phi_approx, phidot_approx = get_continuous_planar_fit_angles(theta, phi, N)
     phi_sim, phidot_sim = phi_approx(theta), phidot_approx(theta)
     uvw_rot = continuous_planar_fit_from_angles(U, V, W, theta, phi_sim, phidot_sim)
     return uvw_rot

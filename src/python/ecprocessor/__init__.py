@@ -1,6 +1,6 @@
 submodules = [
     'tiltcorrections',
-    'utils'
+    'utils',
 ]
 
 __all__ = submodules

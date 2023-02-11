@@ -10,6 +10,7 @@ from datetime import datetime
 
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 __all__ = [
     'get_timestamp_from_fn',
@@ -87,7 +88,7 @@ def compute_summary(fn, renaming_dict,
     std_colnames = [f'{k}_std' for k in new_names]
     skw_colnames = [f'{k}_skw' for k in new_names]
     krt_colnames = [f'{k}_krt' for k in new_names]
-    
+
     means = df[new_names].mean().rename({k:v for k, v in zip(new_names, mean_colnames)}).values
     stds = df[new_names].std().rename({k:v for k, v in zip(new_names, std_colnames)}).values
     skws = df[new_names].skew().rename({k:v for k, v in zip(new_names, skw_colnames)}).values
@@ -99,3 +100,67 @@ def compute_summary(fn, renaming_dict,
     df_out = pd.DataFrame({k:v for k, v in zip(columns, data)})
     
     return df_out
+
+def summarize_files(
+    data_dir, glob='*',
+    out=None,
+    **variable_names
+    ):
+    '''
+    Read in campbell TOA5 files from data_dir following the given glob pattern, and summarize each data file.
+
+    Parameters
+    ----------
+    data_dir : path or str
+        directory containing data files.
+    glob : str (default '*')
+        glob string to fild files within data dir.
+    out : path or str (default None)
+        Path to write the summary file to. If None (default), do not write to file.
+    **variable_names: str or list of str
+        Groups raw data column names under standardized names.
+        Use the following format when providing variable_names:
+            U='Ux_17m' will rename the column 'Ux_17m' to 'U_0' in the summary data frame.
+            V=['Uy_17m', 'Uy_3m'] will rename the column 'Ux_17m' to 'U_0' and 'Ux_3m' to 'U_1'
+            Ts=['T_SONIC', 'T_SONIC_3'], will rename 'T_SONIC' to 'Ts_0' and 'T_SONIC_3' to 'Ts_1' etc...
+        Options are U, V, W, Ts, P, H2O, or CO2. 
+
+    Returns
+    -------
+    files_df : pd.DataFrame
+        dataframe providing the timestamp and filename associated with each file, plus the mean, std, skw, and krt of each provided column.
+    '''
+
+    # record file timestamps and paths
+    data_dir = Path(data_dir)
+    files = list(data_dir.glob(glob))
+    files_df = pd.DataFrame(dict(fn=files))
+    files_df['TIMESTAMP'] = list(map(get_timestamp_from_fn, files_df['fn']))
+    files_df = files_df.sort_values('TIMESTAMP').set_index('TIMESTAMP')
+
+    # create a dictionary to use for renaming raw data columns to standardized names.
+    standard_names = ['U', 'V', 'W', 'Ts', 'P', 'H2O', 'CO2', 'Diag']
+    renaming_dict = {}
+    for new_name, old_names in variable_names.items():
+        if new_name not in standard_names:
+            raise Exception(f"Provided name {new_name} not in list of standard names. Must be one of {standard_names}")
+        if not isinstance(old_names, list): old_names = [old_names]
+        renaming_dict.update({old_name:f'{new_name}_{i}' for i, old_name in enumerate(old_names)})
+    
+    # compute summaries
+    print(renaming_dict)
+    summary_data = pd.concat([compute_summary(fn, renaming_dict) for fn in tqdm(files_df['fn'])])
+    summary_data = summary_data.set_index(files_df.index)
+    files_df = files_df.merge(summary_data, left_index=True, right_index=True)
+
+    if out is not None:
+        out = Path(out)
+        filetype = out.suffix
+        write_out = {
+            '.csv':files_df.to_csv, 
+            '.parquet':files_df.to_parquet, 
+            '.pickle':files_df.to_pickle
+        }
+        write_out[filetype](out)
+
+    return files_df
