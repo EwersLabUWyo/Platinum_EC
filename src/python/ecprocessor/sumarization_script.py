@@ -16,7 +16,7 @@ def main():
     parser.add_argument(
         '--variable_names', required=True, 
         help='Standard column names followed by names as they appear in the raw data file.\n'
-            + 'Separate like columns with commas, separate unlike columns with semicolons, provide a mapping with =:\n'
+            + 'Separate like columns with commas, separate unlike columns with semicolons, provide a mapping with =\n'
             + '    Example: U=Ux_3m,Ux_17m;V=Uy_3m;Ts=Ts_17m,Ts_3m,T_SONIC\n'
             + 'Refer to utils.summarize_files for further documentation.'
     )

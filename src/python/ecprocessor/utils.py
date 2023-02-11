@@ -3,6 +3,8 @@ Utility functions for eddy covariance processing, such as functions to read camp
 
 Author: Alex Fox
 Created: 2023-01-30
+
+TODO: add examples
 """
 
 from pathlib import Path
@@ -108,6 +110,10 @@ def summarize_files(
     ):
     '''
     Read in campbell TOA5 files from data_dir following the given glob pattern, and summarize each data file.
+    Currently, this only works with files that are parseable by read_campbell_file and get_timestamp_from_fn.
+
+    This method will attempt to standardize column names by mapping raw column names to standardized names.
+    See **variable_names kwargs help for more details.
 
     Parameters
     ----------
