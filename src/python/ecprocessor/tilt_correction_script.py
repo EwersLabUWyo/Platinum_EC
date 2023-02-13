@@ -28,8 +28,11 @@ def main():
     )
     parser.add_argument(
         '-o', '--output', 
-        help='path to output file or list of files', 
+        help='path to output directory', 
         default=''
+    )
+    parser.add_argument(
+        '--outformat', help='output file format. If overwrite is specified and an output is not provided, this argument is ignored.', choices=['csv', 'pickle', 'parquet'], default='csv'
     )
     parser.add_argument(
         '-ov', '--overwrite', 
@@ -71,10 +74,6 @@ def main():
         args.method = [args.method]
     if not isinstance(args.order, list):
         args.order = [args.order]
-    if args.overwrite and not args.output:
-        args.output = args.input
-    if not isinstance(args.output, list):
-        args.output = [args.output]
     
     read_file = {
         '.parquet': pd.read_parquet,
@@ -84,17 +83,21 @@ def main():
     }
 
     # read in summary data
-    file_type = summary_file.suffix
-    summary = read_file[file_type](summary_file)
+    file_type = Path(args.summary).suffix
+    summary = read_file[file_type](args.summary)
 
     # apply the requested fit(s)
     i_order = 0
-    for method in args.methods:
+    for method in args.method:
+        print(f'Applying {method}')
+        if method == 'CPF':
+            print(f'Order {args.order[i_order]}')
         # compute rotation angles using the given method(s)
+        U, V, W = summary['U_mean'], summary['V_mean'], summary['W_mean']
         if method == 'TR':
-            theta, phi, psi = get_triple_rotation_angles(summary['U'], summary['V'], summary['W'])
+            theta, phi, psi = get_triple_rotation_angles(U, V, W)
         else:
-            theta, phi = get_double_rotation_angles(summary['U'], summary['V'], summary['W'])
+            theta, phi = get_double_rotation_angles(U, V, W)
 
         if method == 'PF':
             _, phi_func, phidot_func = get_continuous_planar_fit_angles(theta, phi, 1)
@@ -111,28 +114,32 @@ def main():
         for fn_in, fn_out in zip(args.input, args.output):
             fn_in = Path(fn_in)
             file_type = fn_in.suffix
-            fast = read_file[file_type](fn)
-
+            fast = read_file[file_type](fn_in)
+            print(fast.columns)
             if method == 'TR':
-                U, V, W = triple_rotation_fit_from_angles(fast['U'], fast['V'], fast['W'], theta, phi, psi)
+                U, V, W = triple_rotation_fit_from_angles(fast['Ux_CSAT3B'], fast['Uy_CSAT3B'], fast['Uz_CSAT3B'], theta, phi, psi)
             elif method == 'DR':
-                U, V, W = double_rotation_fit_from_angles(fast['U'], fast['V'], fast['W'], theta, phi)
+                U, V, W = double_rotation_fit_from_angles(fast['Ux_CSAT3B'], fast['Uy_CSAT3B'], fast['Uz_CSAT3B'], theta, phi)
             elif method == 'PF':
-                U, V, W = continuous_planar_fit_from_angles(fast['U'], fast['V'], fast['W'], theta, phi, phidot)
+                U, V, W = continuous_planar_fit_from_angles(fast['Ux_CSAT3B'], fast['Uy_CSAT3B'], fast['Uz_CSAT3B'], theta, phi, phidot)
             elif method == 'CPF':
-                U, V, W = continuous_planar_fit_from_angles(fast['U'], fast['V'], fast['W'], theta, phi, phidot)
+                U, V, W = continuous_planar_fit_from_angles(fast['Ux_CSAT3B'], fast['Uy_CSAT3B'], fast['Uz_CSAT3B'], theta, phi, phidot)
             
             fast['U'], fast['V'], fast['W'] = U, V, W
             fast = fast.reset_index()
 
             # write output file
-            fn_out = Path(fn_out)
-            file_type = fn_out.suffix
-            if file_type == '.csv' or file_type == '.dat':
+            if args.overwrite and not args.output:
+                fn_out = Path(fn_out)
+                args.outformat = fn_out.suffix[1:]
+            elif args.output:
+                fn_out = Path(args.output) / f'{fn_in.stem}.{args.outformat}'
+
+            if args.outformat == 'csv':
                 fast.to_csv(fn_out, index=False)
-            elif file_type == '.pickle':
+            elif args.outformat == 'pickle':
                 fast.to_pickle(fn_out)
-            elif file_type == '.parquet':
+            elif args.outformat == 'parquet':
                 fast.to_parquet(fn_out)
 
 if __name__ == '__main__':

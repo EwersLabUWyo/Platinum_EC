@@ -14,12 +14,6 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 
-__all__ = [
-    'get_timestamp_from_fn',
-    'read_campbell_file',
-    'compute_summary'
-]
-
 def get_timestamp_from_fn(fn):
     '''
     Given a raw high-frequency data file, get the starting timestamp from the filename.
@@ -123,12 +117,12 @@ def summarize_files(
         glob string to fild files within data dir.
     out : path or str (default None)
         Path to write the summary file to. If None (default), do not write to file.
-    **variable_names: str or list of str
+    **variable_names: str
         Groups raw data column names under standardized names.
         Use the following format when providing variable_names:
-            U='Ux_17m' will rename the column 'Ux_17m' to 'U_0' in the summary data frame.
-            V=['Uy_17m', 'Uy_3m'] will rename the column 'Ux_17m' to 'U_0' and 'Ux_3m' to 'U_1'
-            Ts=['T_SONIC', 'T_SONIC_3'], will rename 'T_SONIC' to 'Ts_0' and 'T_SONIC_3' to 'Ts_1' etc...
+            U='Ux_17m' will rename the column 'Ux_17m' to 'U' in the summary data frame.
+            V='Uy_17m' will rename the column 'Uy_17m' to 'V'
+            etc.
         Options are U, V, W, Ts, P, H2O, or CO2. 
 
     Returns
@@ -151,10 +145,9 @@ def summarize_files(
         if new_name not in standard_names:
             raise Exception(f"Provided name {new_name} not in list of standard names. Must be one of {standard_names}")
         if not isinstance(old_names, list): old_names = [old_names]
-        renaming_dict.update({old_name:f'{new_name}_{i}' for i, old_name in enumerate(old_names)})
+        renaming_dict.update({old_name:f'{new_name}' for i, old_name in enumerate(old_names)})
     
     # compute summaries
-    print(renaming_dict)
     summary_data = pd.concat([compute_summary(fn, renaming_dict) for fn in tqdm(files_df['fn'])])
     summary_data = summary_data.set_index(files_df.index)
     files_df = files_df.merge(summary_data, left_index=True, right_index=True)
