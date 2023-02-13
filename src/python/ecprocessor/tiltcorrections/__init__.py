@@ -22,6 +22,7 @@ dfourier_func_dtheta - value of the derivative of a finite fourier series
 '''
 
 from ._tilt_correction_algorithms import *
+from ._helper import *
 
 __all__ = [
     'get_double_rotation_angles', 
@@ -32,7 +33,7 @@ __all__ = [
     'continuous_planar_fit_from_angles', 
     'double_rotation_fit_from_uvw',
     'triple_rotation_fit_from_uvw',
-    'continuous_planar_fit_from_uvw'
+    'continuous_planar_fit_from_uvw',
     'fourier_func', 
     'dfourier_func_dtheta'
     ]

@@ -3,7 +3,7 @@
 import numpy as np
 from scipy import optimize
 
-from ecprocessor.tiltcorrections._helper import fourier_func, dfourier_func_dtheta
+from ._helper import *
 
 def get_double_rotation_angles(U, V, W):
     '''
