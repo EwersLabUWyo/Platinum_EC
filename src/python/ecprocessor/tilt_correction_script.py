@@ -113,6 +113,7 @@ def main():
         # apply rotation angles to the given file(s)
         for fn_in, fn_out in zip(args.input, args.output):
             fn_in = Path(fn_in)
+            i_file = summary.loc[summary.fn == fn_in]
             file_type = fn_in.suffix
             fast = read_file[file_type](fn_in)
             print(fast.columns)

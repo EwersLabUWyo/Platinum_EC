@@ -26,6 +26,8 @@ def main():
     # turn variable names into args that can be passed to summarize_files()
     variable_names = {v.split('=')[0]:v.split('=')[1] for v in args.variable_names.split(';')}
     summarize_files(args.dir, args.glob, args.out, **variable_names)
+    
+    print(args.out)
 
 if __name__ == '__main__':
     main()
