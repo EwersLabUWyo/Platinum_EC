@@ -1,7 +1,5 @@
 """
 Apply tilt corrections to either a single file or to multiple files.
-
-TODO: We can currently apply tilt corrections to summary files, but not to raw (fast) files. Implement tilt correction for fast files. Could add another tilt_correction_algorithms method for this.
 """
 
 import argparse
