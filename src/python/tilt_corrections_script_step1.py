@@ -1,6 +1,7 @@
 """
 Step 1 of applying tilt corrections. 
-This will compute necessary aggregate metrics for tilt corrections
+This will compute necessary aggregate metrics for tilt corrections.
+This file generates the output that should be fed into step 2
 """
 
 import argparse
@@ -39,7 +40,7 @@ def main():
     ) 
     
     args = parser.parse_args()
-    
+
     compute_aggregate_metrics(summary=args.summary, dest=args.dest, tilt_correction=args.method)
     print(args.dest)
 
