@@ -280,7 +280,7 @@ def double_rotation_fit_from_uvw(U, V, W):
     theta, phi = get_double_rotation_angles(U, V, W)
     uvw_rot = double_rotation_fit_from_angles(U, V, W, theta, phi)
     return uvw_rot
-    
+   
 def continuous_planar_fit_from_angles(U, V, W, theta, phi, phidot):
     '''
     Given an direction and tilt angle, transform wind coordinates U, V, W using the continuous planar fit method. (Ross et al, 2015).
@@ -294,13 +294,13 @@ def continuous_planar_fit_from_angles(U, V, W, theta, phi, phidot):
     U, V, W : np.ndarray
         Wind coordinates.
     theta, phi, phidot : np.ndarray
-        Rotation angles (and rotation angle derivative). 
+        Rotation angles (and rotation angle derivative).
     
     Returns
     -------
     uvw_rot: np.ndarray
         an array with dimension (..., 3). Dimension -1 gives the rotated u, v, or w coordinate.
-        
+       
     Examples
     --------
     First-order fit over 1000 timepoints. Analagous to standard planar fit
@@ -396,7 +396,7 @@ def continuous_planar_fit_from_uvw(U, V, W, N):
     -------
     uvw_rot: np.ndarray
         an array with dimension (..., 3). Dimension -1 gives the rotated u, v, or w coordinate.
-        
+      
     Examples
     --------
     First-order fit over 1000 timepoints. Analagous to standard planar fit
@@ -417,5 +417,5 @@ def continuous_planar_fit_from_uvw(U, V, W, N):
     theta, phi = get_double_rotation_angles(U, V, W)
     theta, phi_approx, phidot_approx = get_continuous_planar_fit_angles(theta, phi, N)
     phi_sim, phidot_sim = phi_approx(theta), phidot_approx(theta)
-    uvw_rot = continuous_planar_fit_from_angles(U, V, W, theta, phi_sim, phidot_sim)
-    return uvw_rot
+    
+    return continuous_planar_fit_from_angles(U, V, W, theta, phi_sim, phidot_sim)
