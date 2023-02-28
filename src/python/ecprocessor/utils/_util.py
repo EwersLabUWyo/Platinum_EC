@@ -9,72 +9,216 @@ TODO: add examples
 
 from pathlib import Path
 from datetime import datetime
+import re
 
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import xarray as xr
 
-def get_timestamp_from_fn(fn):
+def convert_units(unit):
+    """
+    Convert into SI base units. TEMPERATURES ARE HANDLED AS INTERVALS. e.g. 35C will be converted to 63F as an interval
+
+    units :  list or tuple of lists or tuples
+        Units associated with a value are specified as a list/tuple of lists/tuples:
+            [(Unit1, exponent1), (Unit2, exponent2), ...]
+        A (Unit, exponent) tuple specifies Unit**exponent
+        A [(Unit1, exponent1), (Unit2, exponent2), ...] list specifies Unit1**exponent1 * Unit2**exponent2
+
+        Example:
+            [('m', 1), ('s', -1)],  # m s-1 or m/s
+            [('C', 1)],  # C
+            [('mg', 1), ('m', 3)]  # mg m-3 or mg/m^3
+
+        Supported units:
+            Length: m, cm, mm, in, ft, yd
+            Time: s, min, hr, day, ms, um
+            Mass: kg, g, mg, um, lbm
+            Quantity: mol, mmol, umol, nmol
+            Temperature: K, F, C
+            Pressure: Pa, hPa, kPa, MPa, bar, mbar, atm, torr, inHg, mmHg
+            Force: N, lbf
+            Energy: J, kJ, MJ
+            Power: W, kW
+            Electric Potential: V, mV
+            Frequency: Hz, kHz, MHz
+            You can add additional unit support in the convert_units function.
+
+    Returns
+    -------
+    mult : float
+        Multiplicative factor
+
+    Example
+    -------
+    >>> x = 35.21  # mm/day/K
+    >>> mult = convert_units([('mm', 1), ('day', -1), ('K', -1)])
+    >>> mult
+    1.1574074074074074e-08
+    >>> x*mult  # m/s/K
+    4.0752314814814815e-07
+
+    """
+
+    mult = 1
+    if unit is not None:
+        unit_dict = {
+            # length
+            'm':1., 'cm':1e-2, 'mm':1e-3, 'in':0.0254, 'ft':0.0254*12, 'yd':0.0254*36,
+            # time
+            's':1., 'min':60., 'hr':3600., 'day':86400., 'ms':1e-3, 'um':1e-6,
+            # mass
+            'kg':1., 'g':1e-3, 'mg':1e-6, 'ug':1e-9, 'lbm':0.453592,
+            # quantity
+            'mol':1., 'mmol':1e-3, 'umol':1e-6, 'nmol':1e-9,
+            # temperature interval
+            'K':1., 'F':5/9, 'C':1,
+            # pressure
+            'Pa':1., 'hPa':100., 'kPa':1000., 'MPa':1e6, 'bar':1e5, 'mbar':1e2, 'atm':101325., 'torr':133.322, 'inHg':3386.39, 'mmHg':133.322,
+            # force
+            'N':1., 'lbf':4.44822,
+            # energy
+            'J':1., 'kJ':1e3, 'MJ':1e6,
+            # power
+            'W':1., 'kW':1e3,
+            # electric potential
+            'V':1., 'mV':1e-3,
+            # frequency
+            'Hz':1., 'kHz':1e3, 'MHz':1e6,
+        }
+
+        mult = np.array([unit_dict[u[0]]**u[1] for u in unit if u is not None]).prod()
+    return mult
+
+def get_timestamp_from_fn(fn, fmt, prefix_regex=None, suffix_regex=None):
     '''
     Given a raw high-frequency data file, get the starting timestamp from the filename.
-    filenames look like:
-    ^.*10Hz[0-9]+_yyyy_mm_dd_hhMM$
+    File names MUST contain the timestamp in a strptime-compatible format.
     
     Parameters
     ----------
-    fn: str or path
+    fn : str or pathlib.Path() instance
+        path to file
+    fmt : str
+        strptime format string for the file timestamp
+    prefix_regex : str (default "^")
+        prefix to file timestamp as a regex string, not including parent directories. If "^" (default), then there is no prefix
+    suffix_regex : str (default "$")
+        suffix to the file timestamp as a regex string, including file extension. If "$" (default), then there is no suffix
     
     Returns
     -------
-    datetime.datetime
+    timestamp : datetime.datetime
+
+    Examples
+    --------
+    >>> fn = 'InputData/BBSF7m_14days_dataset/TOA5_9810.CPk_BBSF7m_10Hz1349_2022_11_17_2200.dat'
+    >>> fmt = r'%Y_%m_%d_%H%M'
+    >>> prefix_regex = r'^TOA5.*10Hz[0-9]+_'
+    >>> suffix_regex = r'\.dat$'
+    >>> get_timestamp_from_fn(fn, fmt, prefix_regex, suffix_regex)
+    datetime.datetime(2022, 11, 17, 22, 0)
+
+    >>> fn = '2022_11_17_2200'
+    >>> fmt = r'%Y_%m_%d_%H%M'
+    >>> get_timestamp_from_fn(fn, fmt)
+    datetime.datetime(2022, 11, 17, 22, 0)
     '''
+    
     # get a list of [yyyy, mm, dd, hh, MM] from filename
     if not isinstance(fn, Path().__class__):
         fn = Path(fn)
+    fn = fn.name
 
-    timestamp_elements = fn.stem.split('10Hz')[1].split('_')[1:]
-    hh, mm = timestamp_elements[-1][:2], timestamp_elements[-1][2:]
-    timestamp_elements = timestamp_elements[:-1] + [hh, mm]
-    timestamp_elements = [int(i) for i in timestamp_elements]
-    # convert to datetime
-    timestamp = datetime(*timestamp_elements)
+    date_start = re.search(prefix_regex, fn).end()
+    date_end = re.search(suffix_regex, fn).start()
+    date_string = fn[date_start:date_end]
+    timestamp = datetime.strptime(date_string, fmt)
+    
     return timestamp
 
-def read_campbell_file(fn, 
-                       parse_dates=['TIMESTAMP'], skiprows=[0, 2, 3], na_values=['NAN', '"NAN"', "'NAN'"], 
-                       **read_csv_kwargs):
+def read_campbell_file(fn, fmt='TOA5', **read_csv_kwargs):
     '''
-    read in a campbell scientific TOA5/TOB3 file as a pandas dataframe.
+    read in a campbell scientific file as a pandas dataframe
+
+    TODO Add ability to parse TOA5 metadata
+    TODO Add ability to record and convert units
+
+    Parameters
+    ----------
+    fn : str or path
+    fmt : str, one of 'TOA5', 'TOB3', or None
+        File format to parse. If None, then use read_csv_kwargs to parse the file
+    **read_csv_kwargs : keyword arguments passed to pd.read_csv()
+        if fmt is provided (not None), these will be ignored
+
+    Returns
+    -------
+    df : pd.DataFrame
     '''
-    df = pd.read_csv(
-        fn, 
-        skiprows=skiprows, 
-        parse_dates=parse_dates, 
-        na_values=na_values,
-        **read_csv_kwargs
-                    )
+    
+    if fmt == 'TOA5' or fmt == 'TOB3':
+        read_csv_kwargs = dict(
+            parse_dates=['TIMESTAMP'], 
+            skiprows=[0, 2, 3], 
+            na_values=['NAN', '"NAN"', "'NAN'"], 
+        )
+    
+    df = pd.read_csv(fn, **read_csv_kwargs)
     return df
 
-def compute_summary(fn, renaming_dict, 
+def compute_summary(fn, renaming_dict, units=None,
                     **read_campbell_file_kwargs):
     '''Compute statistical summary of a high-frequency data file
     
     Parameters
     ----------
     fn: str or path
-        path to the desired file
+        path to file
     renaming_dict: dict
-        a mapping from raw_column_name -> standardized_column_name. Only columns in the renaming_dict will be returned. Do not include the TIMESTAMP column
+        Mapping to rename column names as they appear in the raw data file. 
+        The mapping must go from raw column name --> standard column name.
+        Standard column names are as follow:
+            U, V, W: x, y, z windspeed components
+            T_SONIC: sonic temperature
+            CO2, H2O, CH4, O2, O3: gas densities or concentrations
+            PA: air pressure
+        
+        Example: {'Ux_CSAT3B':'U'} 
+
+        Note that multiple columns CANNOT be mapped to the same variable name. 
+        If you have multiple columns representing T_SONIC, for example, you must choose just one.
+
+    units :  dict, default None
+        If none, do not convert units to SI base units. It is highly recommended that you work in SI base units.
+        Mapping to specify column units as they appear in the raw data file.
+        All units will be converted into SI base units. TEMPERATURES ARE HANDLED AS INTERVALS. e.g. 35C will be converted to 63F as an interval
+        The mapping must go from column name --> units
+        Units associated with a value are specified as a list/tuple of lists/tuples:
+            [(Unit1, exponent1), (Unit2, exponent2), ...]
+        A (Unit, exponent) tuple specifies Unit**exponent
+        A [(Unit1, exponent1), (Unit2, exponent2), ...] list specifies Unit1**exponent1 * Unit2**exponent2
+
+        Example:
+            {
+                'Ux_CSAT3B':[('m', 1), ('s', -1)],  # m s-1 or m/s
+                'Ts_CSAT3B':[('C', 1)],  # C
+                'rho_c_LI7500':[('mg', 1), ('m', 3)]  # mg m-3 or mg/m^3
+            }
+
+        See convert_units() for more information.
+
     **read_campbell_file_kwargs: dict
         keyword arguments passed to read_campbell_file()
     
     Returns
     -------
-    out_names : list of variables names associated with out_data entries dim 1
-    out_stats :  list of summary stats associated with out_data entries dim 0
-    out_data : 2d array, dims (stat, name)
-    
+    out_names : list of variables names associated with out_data entries
+    out_stats :  list of summary stats associated with out_data entries
+    out_data : 1d array of values
+
+    zip(out_names, out_stats, out_data) will iterate through matched names, statistics, and values
     '''
     
     df = (
@@ -83,6 +227,13 @@ def compute_summary(fn, renaming_dict,
     )
     
     new_names = renaming_dict.values()
+    
+    # convert units if requested
+    if units is not None:
+        unit_mapping = {k:v for k, v in zip(new_names, units)}
+        for col, unit in unit_mapping.items():
+            df[col] *= convert_units(unit)
+
     means = list(df[new_names].mean().values)
     stds = list(df[new_names].std().values)
     skws = list(df[new_names].skew().values)
@@ -134,7 +285,6 @@ def summarize_files(
     files_df['TIMESTAMP'] = list(map(get_timestamp_from_fn, files_df['fn']))
     files_df = files_df.sort_values('TIMESTAMP').set_index('TIMESTAMP')
     
-    # compute summaries: could be way faster
     iterfiles = files_df['fn']
     if verbose:
         iterfiles = tqdm(files_df['fn'])
