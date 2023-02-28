@@ -106,7 +106,7 @@ def convert_units(unit):
             return mult, SI_unit
         return 1, 'Unknown'
 
-def get_timestamp_from_fn(fn, fmt, prefix_regex=None, suffix_regex=None):
+def get_timestamp_from_fn(fn, fmt='%Y_%m_%d_%H%M', prefix_regex='^', suffix_regex='$'):
     '''
     Given a raw high-frequency data file, get the starting timestamp from the filename.
     File names MUST contain the timestamp in a strptime-compatible format.
@@ -115,7 +115,7 @@ def get_timestamp_from_fn(fn, fmt, prefix_regex=None, suffix_regex=None):
     ----------
     fn : str or pathlib.Path() instance
         path to file
-    fmt : str
+    fmt : str (default '%Y_%m_%d_%H%M)
         strptime format string for the file timestamp
     prefix_regex : str (default "^")
         prefix to file timestamp as a regex string, not including parent directories. If "^" (default), then there is no prefix
@@ -268,6 +268,8 @@ def summarize_files(
     glob='*',
     dest=None,
     verbose=False,
+    **get_timestamp_from_fn_kwargs,
+    **read_campbell_file_kwargs,
     ):
     '''
     Read in csv files from data_dir following the given glob pattern, and summarize each data file.
@@ -288,31 +290,44 @@ def summarize_files(
     renaming_dict : dict or mapping
         maps raw column names to standard column names
         Options for standard column names are U, V, W, Ts, P, H2O, or CO2.
+    **get_timestamp_from_fn_kwargs : kwargs passed to get_timestamp_from_fn
+        used to specify file name date formatting.
+    **read_campbell_file_kwargs : kwargs passed to read_campbell_file
 
     Returns
     -------
     summary_data : xr.Dataset
-        dataset providing the timestamp and filename associated with each file, plus the mean, std, skw, and krt of each provided column indexed by time.
+        dataset summarizing important raw file features:
+        - Coords: TIMESTAMP
+        - Data Variables: 
+            * fn, dims=(TIMESTAMP)
+            * User-specified variables, dims=(TIMESTAMP, Stat), attrs={'Units':units}
     '''
 
-    # record file timestamps and paths
+    # find files
     data_dir = Path(data_dir)
     files = list(data_dir.glob(glob))
+    # make dataframe from files
     files_df = pd.DataFrame(dict(fn=files))
-    files_df['TIMESTAMP'] = list(map(get_timestamp_from_fn, files_df['fn']))
+    # add file timestamps to dataframe
+    files_df['TIMESTAMP'] = list(map(
+        lambda fn: get_timestamp_from_fn(fn, **get_timestamp_from_fn_kwargs),
+        files_df['fn']
+        ))
+    # sort by timestamp, set index
     files_df = files_df.sort_values('TIMESTAMP').set_index('TIMESTAMP')
-    
+    # record file summary data and metadata for each file
     iterfiles = files_df['fn']
     if verbose:
         iterfiles = tqdm(files_df['fn'])
-    out = [compute_summary(fn, renaming_dict) for fn in iterfiles]
+    out = [compute_summary(fn, renaming_dict, **read_campbell_file_kwargs) for fn in iterfiles]
     out_names = out[0][0]
     out_units = out[0][1]
     out_stats = out[0][2]
-    
     # dims (name, stat, file)
     out_data = np.transpose(np.array([i[3] for i in out]), axes=(2, 0, 1))
-    # summarize default data
+    
+    # combine into a dataset with metadata
     summary_data = xr.Dataset(
         {
             name:xr.DataArray(
@@ -344,6 +359,8 @@ def compute_aggregate_metrics(
     Computes the requrested aggregatte metrics from a summary file or dataset returned by summarize_files
     Currently only 
 
+    TODO this is pretty hard to follow. Lots of things to change if we need to add a new method. If we add a new tilt correction, we need to update this list too.
+
     Parameters
     -----------
     summary : str or Path, or xr.Dataset
@@ -366,12 +383,13 @@ def compute_aggregate_metrics(
     # try to open the file, otherwise we should have been given a dataset
     if isinstance(summary, str):
         summary = xr.open_dataset(summary)
-    assert isinstance(summary, xr.Dataset), f'got type(summary)={type(summary)}. Summary is not a dataset!'
+    assert isinstance(summary, xr.Dataset), f'got type(summary)={type(summary)}. You need to pass either an xr.Dataset object or a file path to one!'
 
     if tilt_correction:
         from .. import tiltcorrections as tc
-        # get U, V, W data
-        U, V, W = summary['U'].sel(Stat='mean').data, summary['V'].sel(Stat='mean').data, summary['W'].sel(Stat='mean').data
+        U = summary['U'].sel(Stat='mean').data
+        V = summary['V'].sel(Stat='mean').data
+        W = summary['W'].sel(Stat='mean').data
 
         # apply tilt correction
         if tilt_correction == 'DR':
