@@ -36,26 +36,32 @@ def convert_units(unit):
             Time: s, min, hr, day, ms, um
             Mass: kg, g, mg, um, lbm
             Quantity: mol, mmol, umol, nmol
-            Temperature: K, F, C
+            Temperature: C, K, F
             Pressure: Pa, hPa, kPa, MPa, bar, mbar, atm, torr, inHg, mmHg
             Force: N, lbf
             Energy: J, kJ, MJ
             Power: W, kW
             Electric Potential: V, mV
             Frequency: Hz, kHz, MHz
+            Fractions: fraction, pct (fraction ranges from 0 to 1, and is the base unit.)
+            Unitless: unitless
             You can add additional unit support in the convert_units function.
 
     Returns
     -------
     mult : float
         Multiplicative factor
+    SI_unit : str
+        Human readable unit
 
     Example
     -------
     >>> x = 35.21  # mm/day/K
-    >>> mult = convert_units([('mm', 1), ('day', -1), ('K', -1)])
+    >>> mult, SI_unit = convert_units([('mm', 1), ('day', -1), ('K', -1)])
     >>> mult
     1.1574074074074074e-08
+    >>> SI_unit
+    'C-1.000 m1.000 s-1.000
     >>> x*mult  # m/s/K
     4.0752314814814815e-07
 
@@ -65,31 +71,40 @@ def convert_units(unit):
     if unit is not None:
         unit_dict = {
             # length
-            'm':1., 'cm':1e-2, 'mm':1e-3, 'in':0.0254, 'ft':0.0254*12, 'yd':0.0254*36,
+            'm':(1., 'm'), 'cm':(1e-2, 'm'), 'mm':(1e-3, 'm'), 'in':(0.0254, 'm'), 'ft':(0.0254*12, 'm'), 'yd':(0.0254*36, 'm'),
             # time
-            's':1., 'min':60., 'hr':3600., 'day':86400., 'ms':1e-3, 'um':1e-6,
+            's':(1., 's'), 'min':(60., 's'), 'hr':(3600., 's'), 'day':(86400., 's'), 'ms':(1e-3, 's'), 'us':(1e-6, 's'),
             # mass
-            'kg':1., 'g':1e-3, 'mg':1e-6, 'ug':1e-9, 'lbm':0.453592,
+            'kg':(1., 'kg'), 'g':(1e-3, 'kg'), 'mg':(1e-6, 'kg'), 'ug':(1e-9, 'kg'), 'lbm':(0.453592, 'kg'),
             # quantity
-            'mol':1., 'mmol':1e-3, 'umol':1e-6, 'nmol':1e-9,
+            'mol':(1., 'mol'), 'mmol':(1e-3, 'mol'), 'umol':(1e-6, 'mol'), 'nmol':(1e-9, 'mol'),
             # temperature interval
-            'K':1., 'F':5/9, 'C':1,
+            'K':(1., 'C'), 'F':(5/9, 'C'), 'C':(1, 'C'),
             # pressure
-            'Pa':1., 'hPa':100., 'kPa':1000., 'MPa':1e6, 'bar':1e5, 'mbar':1e2, 'atm':101325., 'torr':133.322, 'inHg':3386.39, 'mmHg':133.322,
+            'Pa':(1., 'Pa'), 'hPa':(100., 'Pa'), 'kPa':(1000., 'Pa'), 'MPa':(1e6, 'Pa'), 'bar':(1e5, 'Pa'), 'mbar':(1e2, 'Pa'), 'atm':(101325., 'Pa'), 'torr':(133.322, 'Pa'), 'inHg':(3386.39, 'Pa'), 'mmHg':(133.322, 'Pa'),
             # force
-            'N':1., 'lbf':4.44822,
+            'N':(1., 'N'), 'lbf':(4.44822, 'N'),
             # energy
-            'J':1., 'kJ':1e3, 'MJ':1e6,
+            'J':(1., 'J'), 'kJ':(1e3, 'J'), 'MJ':(1e6, 'J'),
             # power
-            'W':1., 'kW':1e3,
+            'W':(1., 'W'), 'kW':(1e3, 'W'),
             # electric potential
-            'V':1., 'mV':1e-3,
+            'V':(1., 'V'), 'mV':(1e-3, 'V'),
             # frequency
-            'Hz':1., 'kHz':1e3, 'MHz':1e6,
+            'Hz':(1., 'Hz'), 'kHz':(1e3, 'Hz'), 'MHz':(1e6, 'Hz'),
+            # proportion
+            'fraction': (1., 'fraction'), 'pct':(0.01, 'fraction'),
+            # unitless
+            'unitless': (1., 'unitless'),
         }
 
-        mult = np.array([unit_dict[u[0]]**u[1] for u in unit if u is not None]).prod()
-    return mult
+        # multiplicative factor
+        if unit is not None:
+            mult = np.array([unit_dict[u[0]][0]**u[1] for u in unit]).prod()
+            # human-readable unit
+            SI_unit = ' '.join(sorted([f'{unit_dict[u[0]][1]}{u[1]:.3f}' for u in unit]))
+            return mult, SI_unit
+        return 1, 'Unknown'
 
 def get_timestamp_from_fn(fn, fmt, prefix_regex=None, suffix_regex=None):
     '''
@@ -170,7 +185,7 @@ def read_campbell_file(fn, fmt='TOA5', **read_csv_kwargs):
 
 def compute_summary(fn, renaming_dict, units=None,
                     **read_campbell_file_kwargs):
-    '''Compute statistical summary of a high-frequency data file
+    '''Compute statistical summary of a high-frequency data file in SI units
     
     Parameters
     ----------
@@ -178,6 +193,7 @@ def compute_summary(fn, renaming_dict, units=None,
         path to file
     renaming_dict: dict
         Mapping to rename column names as they appear in the raw data file. 
+        Columns not specified in this mapping will not be included.
         The mapping must go from raw column name --> standard column name.
         Standard column names are as follow:
             U, V, W: x, y, z windspeed components
@@ -190,8 +206,7 @@ def compute_summary(fn, renaming_dict, units=None,
         Note that multiple columns CANNOT be mapped to the same variable name. 
         If you have multiple columns representing T_SONIC, for example, you must choose just one.
 
-    units :  dict, default None
-        If none, do not convert units to SI base units. It is highly recommended that you work in SI base units.
+    units :  dict
         Mapping to specify column units as they appear in the raw data file.
         All units will be converted into SI base units. TEMPERATURES ARE HANDLED AS INTERVALS. e.g. 35C will be converted to 63F as an interval
         The mapping must go from column name --> units
@@ -214,13 +229,13 @@ def compute_summary(fn, renaming_dict, units=None,
     
     Returns
     -------
-    out_names : list of variables names associated with out_data entries
-    out_stats :  list of summary stats associated with out_data entries
-    out_data : 1d array of values
-
-    zip(out_names, out_stats, out_data) will iterate through matched names, statistics, and values
+    out_names : list of variables names associated with out_data entries in dimension 1
+    out_units : list of unit names associated with out_names
+    out_stats :  list of summary stats associated with out_data entries in dimension 0
+    out_data : 2d array of data values with dimensions (stat, name)
     '''
-    
+
+    read_campbell_file_kwargs.update({'usecols':list(renaming_dict.values())})
     df = (
         read_campbell_file(fn, **read_campbell_file_kwargs)
         .rename(columns=renaming_dict)
@@ -229,10 +244,12 @@ def compute_summary(fn, renaming_dict, units=None,
     new_names = renaming_dict.values()
     
     # convert units if requested
-    if units is not None:
-        unit_mapping = {k:v for k, v in zip(new_names, units)}
-        for col, unit in unit_mapping.items():
-            df[col] *= convert_units(unit)
+    unit_mapping = {k:v for k, v in zip(new_names, units)}
+    out_units = []
+    for col, unit in unit_mapping.items():
+        mult, unit_name = convert_units(unit)
+        df[col] *= mult
+        out_units.append(unit_name)
 
     means = list(df[new_names].mean().values)
     stds = list(df[new_names].std().values)
@@ -244,7 +261,7 @@ def compute_summary(fn, renaming_dict, units=None,
     out_stats = ['mean', 'std', 'skew', 'kurt', 'frac']
     out_data = np.stack((means, stds, skws, krts, frac))
     
-    return out_names, out_stats, out_data
+    return out_names, out_units, out_stats, out_data
 
 def summarize_files(
     data_dir, renaming_dict, 
@@ -253,7 +270,7 @@ def summarize_files(
     verbose=False,
     ):
     '''
-    Read in campbell TOA5 files from data_dir following the given glob pattern, and summarize each data file.
+    Read in csv files from data_dir following the given glob pattern, and summarize each data file.
     Currently, this only works with files that are parseable by read_campbell_file and get_timestamp_from_fn.
 
     Parameters
@@ -290,9 +307,11 @@ def summarize_files(
         iterfiles = tqdm(files_df['fn'])
     out = [compute_summary(fn, renaming_dict) for fn in iterfiles]
     out_names = out[0][0]
-    out_stats = out[0][1]
+    out_units = out[0][1]
+    out_stats = out[0][2]
+    
     # dims (name, stat, file)
-    out_data = np.transpose(np.array([i[2] for i in out]), axes=(2, 0, 1))
+    out_data = np.transpose(np.array([i[3] for i in out]), axes=(2, 0, 1))
     # summarize default data
     summary_data = xr.Dataset(
         {
@@ -304,8 +323,9 @@ def summarize_files(
                     Stat=out_stats,
                 ),
                 name=name,
+                attrs=dict(Units=unit)
             )
-            for var, name in zip(out_data, out_names)
+            for var, unit, name in zip(out_data, out_units, out_names)
         }
     )
     
