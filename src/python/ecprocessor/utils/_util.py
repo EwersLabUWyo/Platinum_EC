@@ -306,7 +306,7 @@ def summarize_files(
 
     # find files
     data_dir = Path(data_dir)
-    files = list(data_dir.glob(glob))
+    files = list(data_dir.absolute().glob(glob))
     # make dataframe from files
     files_df = pd.DataFrame(dict(fn=files))
     # add file timestamps to dataframe
