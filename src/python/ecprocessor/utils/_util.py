@@ -1,5 +1,5 @@
 """
-Utility functions for eddy covariance processing, such as functions to read campbell files and strip timestamps from their file names
+Utility functions for eddy covariance processing. These functions mostly handle i/o processing.
 
 Author: Alex Fox
 Created: 2023-01-30
@@ -108,15 +108,15 @@ def convert_units(unit):
 
 def get_timestamp_from_fn(fn, fmt='%Y_%m_%d_%H%M', prefix_regex='^', suffix_regex='$'):
     '''
-    Given a raw high-frequency data file, get the starting timestamp from the filename.
+    Given a string or file path containing a timestamp, extract the timestamp.
     File names MUST contain the timestamp in a strptime-compatible format.
     
     Parameters
     ----------
     fn : str or pathlib.Path() instance
-        path to file
+        string or filepath containing the timestamp to extract.
     fmt : str (default '%Y_%m_%d_%H%M)
-        strptime format string for the file timestamp
+        strptime format string for the file timestamp. See https://docs.python.org/3/library/datetime.html for more details.
     prefix_regex : str (default "^")
         prefix to file timestamp as a regex string, not including parent directories. If "^" (default), then there is no prefix
     suffix_regex : str (default "$")
@@ -129,8 +129,11 @@ def get_timestamp_from_fn(fn, fmt='%Y_%m_%d_%H%M', prefix_regex='^', suffix_rege
     Examples
     --------
     >>> fn = 'InputData/BBSF7m_14days_dataset/TOA5_9810.CPk_BBSF7m_10Hz1349_2022_11_17_2200.dat'
+    >>> # strptime format string
     >>> fmt = r'%Y_%m_%d_%H%M'
+    >>> # regex to identify character preceeding the timestamp. Note that we exclude any parent directories in the prefix.
     >>> prefix_regex = r'^TOA5.*10Hz[0-9]+_'
+    >>> # regex to identify character appearing after the timestamp
     >>> suffix_regex = r'\.dat$'
     >>> get_timestamp_from_fn(fn, fmt, prefix_regex, suffix_regex)
     datetime.datetime(2022, 11, 17, 22, 0)
@@ -166,7 +169,7 @@ def read_campbell_file(fn, fmt='TOA5', **read_csv_kwargs):
     fmt : str, one of 'TOA5', 'TOB3', or None
         File format to parse. If None, then use read_csv_kwargs to parse the file
     **read_csv_kwargs : keyword arguments passed to pd.read_csv()
-        if fmt is provided (not None), these will be ignored
+        if fmt is provided (not None), these will be ignored.
 
     Returns
     -------
@@ -183,7 +186,9 @@ def read_campbell_file(fn, fmt='TOA5', **read_csv_kwargs):
     df = pd.read_csv(fn, **read_csv_kwargs)
     return df
 
-def compute_summary(fn, renaming_dict, units=None,
+def compute_summary(fn, 
+                    renaming_dict, 
+                    units=None,
                     **read_campbell_file_kwargs):
     '''Compute statistical summary of a high-frequency data file in SI units
     
@@ -268,7 +273,9 @@ def summarize_files(
     glob='*',
     dest=None,
     verbose=False,
-    **get_timestamp_from_fn_kwargs,
+    fmt='%Y_%m_%d_%H%M', 
+    prefix_regex='^', 
+    suffix_regex='$',
     **read_campbell_file_kwargs,
     ):
     '''
@@ -290,8 +297,7 @@ def summarize_files(
     renaming_dict : dict or mapping
         maps raw column names to standard column names
         Options for standard column names are U, V, W, Ts, P, H2O, or CO2.
-    **get_timestamp_from_fn_kwargs : kwargs passed to get_timestamp_from_fn
-        used to specify file name date formatting.
+    fmt, prefix_regex, suffix_regex : args passed to get_timestamp_from_fn. See get_timestamp_from_fn() for more information.
     **read_campbell_file_kwargs : kwargs passed to read_campbell_file
 
     Returns
@@ -311,7 +317,7 @@ def summarize_files(
     files_df = pd.DataFrame(dict(fn=files))
     # add file timestamps to dataframe
     files_df['TIMESTAMP'] = list(map(
-        lambda fn: get_timestamp_from_fn(fn, **get_timestamp_from_fn_kwargs),
+        lambda fn: get_timestamp_from_fn(fn, fmt, prefix_regex, suffix_regex),
         files_df['fn']
         ))
     # sort by timestamp, set index
@@ -349,6 +355,8 @@ def summarize_files(
     if dest is not None:
         summary_data.to_netcdf(path=Path(dest))
     return summary_data
+
+def extract_stat_from_summary(fn, )
 
 def compute_aggregate_metrics(
     summary, 

@@ -15,8 +15,6 @@ def fourier_func(theta, *p):
     out -  np.ndarray
         the value of the fourier series at theta.
     '''
-    # a = p[::2]
-    # b = p[1::2]
     p = np.array(p)
     c = p[::2] + 1j*p[1::2]
     N = len(c)
